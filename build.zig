@@ -5,13 +5,7 @@ const ResolvedTarget = Build.ResolvedTarget;
 const OptimizeMode = std.builtin.OptimizeMode;
 const builtin = @import("builtin");
 
-const min_supported_ver = "0.15.1";
-comptime {
-    const order = std.SemanticVersion.order;
-    const parse = std.SemanticVersion.parse;
-    if (order(builtin.zig_version, parse(min_supported_ver) catch unreachable) == .lt)
-        @compileError("Box2d requires zig version " ++ min_supported_ver);
-}
+const Translator = @import("translate_c").Translator;
 
 pub const Options = struct {
     shared: bool,
@@ -53,14 +47,20 @@ pub fn build(b: *Build) !void {
     const lib = try compileBox2d(b, target, optimize, options);
 
     // Translate the box2d headers and export them as a module
-    const translate_c = b.addTranslateC(.{
-        .root_source_file = b.path("include/box2d/box2d.h"),
+    const translate_c = b.dependency("translate_c", .{});
+    const translator: Translator = .init(translate_c, .{
+        .name = "translate_box2d",
+        .c_source_file = b.path("include/box2d/box2d.h"),
         .target = target,
         .optimize = optimize,
     });
-    translate_c.addIncludePath(b.path("include"));
-    const translate_module = translate_c.addModule("box2d");
-    translate_module.linkLibrary(lib);
+    translator.addIncludePath(b.path("include"));
+
+    const module = b.addModule("box2d", .{
+        .root_source_file = translator.output_file,
+    });
+
+    module.linkLibrary(lib);
 
     b.installArtifact(lib);
 
